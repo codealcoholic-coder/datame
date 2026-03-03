@@ -1,10 +1,13 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import CursorProvider from "@/components/cursor-provider";
+
 export const metadata: Metadata = {
   title: "dataBitBytes — Learn the Stack That Matters",
   description:
     "A developer-focused blog covering the tech stack that actually matters. Deep dives into systems, code, and modern development.",
 };
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -27,6 +30,7 @@ export default function RootLayout({
       <body className="antialiased">
         <div className="grid-bg" />
         <div className="noise-overlay" />
+        <CursorProvider />
         {children}
       </body>
     </html>

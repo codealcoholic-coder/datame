@@ -129,32 +129,8 @@ const features = [
   },
 ];
 export default function Home() {
-  const cursorRef = useRef<HTMLDivElement>(null);
-  const ringRef = useRef<HTMLDivElement>(null);
   const navRef = useRef<HTMLElement>(null);
   useEffect(() => {
-    // Custom cursor
-    const cursor = cursorRef.current;
-    const ring = ringRef.current;
-    if (!cursor || !ring) return;
-    let mx = 0,
-      my = 0,
-      rx = 0,
-      ry = 0;
-    const onMove = (e: MouseEvent) => {
-      mx = e.clientX;
-      my = e.clientY;
-    };
-    document.addEventListener("mousemove", onMove);
-    let raf: number;
-    const animate = () => {
-      cursor.style.transform = `translate(${mx - 6}px, ${my - 6}px)`;
-      rx += (mx - rx) * 0.12;
-      ry += (my - ry) * 0.12;
-      ring.style.transform = `translate(${rx - 18}px, ${ry - 18}px)`;
-      raf = requestAnimationFrame(animate);
-    };
-    animate();
     // Nav scroll
     const nav = navRef.current;
     const onScroll = () => {
@@ -176,48 +152,12 @@ export default function Home() {
     );
     reveals.forEach((el) => obs.observe(el));
     return () => {
-      document.removeEventListener("mousemove", onMove);
       window.removeEventListener("scroll", onScroll);
-      cancelAnimationFrame(raf);
       obs.disconnect();
     };
   }, []);
   return (
     <>
-      {/* Custom Cursor */}
-      <div
-        ref={cursorRef}
-        style={{
-          width: 12,
-          height: 12,
-          background: "var(--accent)",
-          borderRadius: "50%",
-          position: "fixed",
-          top: 0,
-          left: 0,
-          pointerEvents: "none",
-          zIndex: 9999,
-          transition: "transform 0.15s ease",
-          mixBlendMode: "exclusion",
-        }}
-      />
-      <div
-        ref={ringRef}
-        style={{
-          width: 36,
-          height: 36,
-          border: "1px solid var(--accent)",
-          borderRadius: "50%",
-          position: "fixed",
-          top: 0,
-          left: 0,
-          pointerEvents: "none",
-          zIndex: 9998,
-          transition: "transform 0.4s ease",
-          mixBlendMode: "exclusion",
-          opacity: 0.6,
-        }}
-      />
       {/* NAV */}
       <nav
         ref={navRef}
