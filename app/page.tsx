@@ -1,6 +1,339 @@
 "use client";
-import { useEffect, useRef } from "react";
+
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import React from "react";
+
+// Types for API data
+interface Post {
+  _id: string;
+  slug: string;
+  title: string;
+  excerpt: string;
+  category: string;
+  categoryColor: string;
+  published: boolean;
+  createdAt: string;
+}
+
+interface Comment {
+  _id: string;
+  postSlug: string;
+  author: string;
+  email: string;
+  content: string;
+  approved: boolean;
+  createdAt: string;
+}
+
+interface Stats {
+  postsCount: number;
+  commentsCount: number;
+}
+
+// Knowledge Graph Node type
+interface GraphNode {
+  id: string;
+  label: string;
+  x: number;
+  y: number;
+  color: string;
+  size: number;
+  category: string;
+  animDuration: number; // Pre-computed animation duration
+}
+
+// Knowledge Graph Edge type
+interface GraphEdge {
+  from: string;
+  to: string;
+}
+
+// Knowledge Graph Data with pre-computed animation durations
+const graphNodes: GraphNode[] = [
+  // Core topics (larger nodes)
+  { id: "ml", label: "Machine Learning", x: 45, y: 35, color: "#e8ff47", size: 24, category: "core", animDuration: 4.5 },
+  { id: "stats", label: "Statistics", x: 20, y: 60, color: "#47ffe8", size: 22, category: "core", animDuration: 5.2 },
+  { id: "genai", label: "Generative AI", x: 75, y: 65, color: "#b847ff", size: 22, category: "core", animDuration: 4.8 },
+  { id: "rag", label: "RAG", x: 80, y: 30, color: "#ff6b47", size: 20, category: "core", animDuration: 5.5 },
+  
+  // ML subtopics
+  { id: "xgboost", label: "XGBoost", x: 30, y: 20, color: "#e8ff47", size: 12, category: "ml", animDuration: 4.2 },
+  { id: "trees", label: "Trees", x: 25, y: 42, color: "#e8ff47", size: 11, category: "ml", animDuration: 5.0 },
+  { id: "clustering", label: "Clustering", x: 60, y: 50, color: "#e8ff47", size: 11, category: "ml", animDuration: 4.7 },
+  
+  // Stats subtopics
+  { id: "bayesian", label: "Bayesian", x: 8, y: 45, color: "#47ffe8", size: 12, category: "stats", animDuration: 5.3 },
+  { id: "causal", label: "Causal", x: 35, y: 75, color: "#47ffe8", size: 11, category: "stats", animDuration: 4.4 },
+  
+  // GenAI subtopics
+  { id: "llm", label: "LLMs", x: 90, y: 50, color: "#b847ff", size: 14, category: "genai", animDuration: 4.9 },
+  { id: "finetuning", label: "Fine-tuning", x: 65, y: 82, color: "#b847ff", size: 11, category: "genai", animDuration: 5.1 },
+  { id: "agents", label: "Agents", x: 88, y: 78, color: "#b847ff", size: 10, category: "genai", animDuration: 4.6 },
+  
+  // RAG subtopics
+  { id: "embeddings", label: "Embeddings", x: 92, y: 18, color: "#ff6b47", size: 12, category: "rag", animDuration: 5.4 },
+  { id: "vectordb", label: "VectorDB", x: 70, y: 12, color: "#ff6b47", size: 11, category: "rag", animDuration: 4.3 },
+];
+
+const graphEdges: GraphEdge[] = [
+  // Core connections
+  { from: "ml", to: "stats" },
+  { from: "ml", to: "genai" },
+  { from: "genai", to: "rag" },
+  { from: "stats", to: "genai" },
+  { from: "ml", to: "rag" },
+  
+  // ML connections
+  { from: "ml", to: "xgboost" },
+  { from: "ml", to: "trees" },
+  { from: "ml", to: "clustering" },
+  
+  // Stats connections
+  { from: "stats", to: "bayesian" },
+  { from: "stats", to: "causal" },
+  
+  // GenAI connections
+  { from: "genai", to: "llm" },
+  { from: "genai", to: "finetuning" },
+  { from: "genai", to: "agents" },
+  { from: "llm", to: "agents" },
+  
+  // RAG connections
+  { from: "rag", to: "embeddings" },
+  { from: "rag", to: "vectordb" },
+  { from: "llm", to: "rag" },
+];
+
+// Pre-computed particles with fixed positions
+const particles = [
+  { x: 15, y: 25, dur1: 6.5, dur2: 4.2 },
+  { x: 50, y: 90, dur1: 7.2, dur2: 3.8 },
+  { x: 85, y: 40, dur1: 5.8, dur2: 4.5 },
+  { x: 40, y: 15, dur1: 6.8, dur2: 3.5 },
+  { x: 95, y: 85, dur1: 7.5, dur2: 4.0 },
+  { x: 12, y: 80, dur1: 6.2, dur2: 4.8 },
+  { x: 55, y: 55, dur1: 7.0, dur2: 3.2 },
+  { x: 78, y: 92, dur1: 5.5, dur2: 4.3 },
+];
+
+// Knowledge Graph Component - Client Only Rendering
+function KnowledgeGraph(): React.ReactElement | null {
+  const [hoveredNode, setHoveredNode] = useState<string | null>(null);
+  const [isClient, setIsClient] = useState(false);
+
+  // Only render on client to avoid hydration mismatch
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
+
+  const getNodeById = (id: string): GraphNode | undefined => {
+    return graphNodes.find((n) => n.id === id);
+  };
+
+  const isConnected = (nodeId: string): boolean => {
+    if (!hoveredNode) return false;
+    return graphEdges.some(
+      (e) =>
+        (e.from === hoveredNode && e.to === nodeId) ||
+        (e.to === hoveredNode && e.from === nodeId) ||
+        nodeId === hoveredNode
+    );
+  };
+
+  // Don't render on server
+  if (!isClient) {
+    return null;
+  }
+
+  return (
+    <div
+      style={{
+        position: "absolute",
+        top: "50%",
+        right: 0,
+        transform: "translateY(-50%)",
+        width: "45%",
+        height: "70%",
+        maxHeight: 500,
+        overflow: "visible",
+        pointerEvents: "none",
+      }}
+      className="hidden md:block"
+    >
+      <svg
+        viewBox="0 0 100 100"
+        style={{
+          width: "100%",
+          height: "100%",
+          position: "absolute",
+          top: 0,
+          left: 0,
+          overflow: "visible",
+        }}
+        preserveAspectRatio="xMidYMid meet"
+      >
+        <defs>
+          {/* Glow filter */}
+          <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+            <feGaussianBlur stdDeviation="0.8" result="coloredBlur" />
+            <feMerge>
+              <feMergeNode in="coloredBlur" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+        </defs>
+
+        {/* Edges */}
+        {graphEdges.map((edge, index) => {
+          const fromNode = getNodeById(edge.from);
+          const toNode = getNodeById(edge.to);
+          if (!fromNode || !toNode) return null;
+
+          const isHighlighted =
+            hoveredNode &&
+            (edge.from === hoveredNode || edge.to === hoveredNode);
+
+          return (
+            <line
+              key={`edge-${index}`}
+              x1={fromNode.x}
+              y1={fromNode.y}
+              x2={toNode.x}
+              y2={toNode.y}
+              stroke={isHighlighted ? "#e8ff47" : "rgba(255,255,255,0.12)"}
+              strokeWidth={isHighlighted ? 0.5 : 0.2}
+              style={{
+                transition: "stroke 0.3s, stroke-width 0.3s",
+              }}
+            />
+          );
+        })}
+
+        {/* Nodes */}
+        {graphNodes.map((node) => {
+          const isHovered = hoveredNode === node.id;
+          const isConnectedToHovered = isConnected(node.id);
+          const shouldDim = hoveredNode && !isConnectedToHovered;
+          const nodeRadius = node.size / 10;
+
+          return (
+            <g
+              key={node.id}
+              style={{
+                pointerEvents: "auto",
+                cursor: "pointer",
+                transition: "opacity 0.3s",
+                opacity: shouldDim ? 0.15 : 1,
+              }}
+              onMouseEnter={() => setHoveredNode(node.id)}
+              onMouseLeave={() => setHoveredNode(null)}
+            >
+              {/* Pulse ring */}
+              <circle
+                cx={node.x}
+                cy={node.y}
+                r={nodeRadius}
+                fill={node.color}
+                opacity={0.2}
+              >
+                <animate
+                  attributeName="r"
+                  values={`${nodeRadius};${nodeRadius * 1.8};${nodeRadius}`}
+                  dur="3s"
+                  repeatCount="indefinite"
+                />
+                <animate
+                  attributeName="opacity"
+                  values="0.2;0.05;0.2"
+                  dur="3s"
+                  repeatCount="indefinite"
+                />
+              </circle>
+
+              {/* Main node */}
+              <circle
+                cx={node.x}
+                cy={node.y}
+                r={isHovered ? nodeRadius * 1.3 : nodeRadius}
+                fill={node.color}
+                opacity={isHovered ? 1 : 0.85}
+                style={{
+                  transition: "r 0.2s, opacity 0.2s",
+                  filter: "url(#glow)",
+                }}
+              >
+                <animate
+                  attributeName="cy"
+                  values={`${node.y};${node.y - 0.8};${node.y}`}
+                  dur={`${node.animDuration}s`}
+                  repeatCount="indefinite"
+                />
+              </circle>
+
+              {/* Label */}
+              <text
+                x={node.x}
+                y={node.y + nodeRadius + 3}
+                textAnchor="middle"
+                fill={isHovered ? "#ffffff" : "rgba(255,255,255,0.6)"}
+                fontSize={node.category === "core" ? 2.5 : 1.8}
+                fontFamily="var(--font-sans)"
+                fontWeight={node.category === "core" ? 600 : 400}
+                style={{
+                  transition: "fill 0.2s",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.04em",
+                }}
+              >
+                {node.label}
+              </text>
+            </g>
+          );
+        })}
+
+        {/* Decorative particles */}
+        {particles.map((p, i) => (
+          <circle
+            key={`particle-${i}`}
+            cx={p.x}
+            cy={p.y}
+            r={0.4}
+            fill="rgba(232, 255, 71, 0.3)"
+          >
+            <animate
+              attributeName="cy"
+              values={`${p.y};${p.y - 5};${p.y}`}
+              dur={`${p.dur1}s`}
+              repeatCount="indefinite"
+            />
+            <animate
+              attributeName="opacity"
+              values="0.3;0.1;0.3"
+              dur={`${p.dur2}s`}
+              repeatCount="indefinite"
+            />
+          </circle>
+        ))}
+      </svg>
+
+      {/* Left gradient for text readability */}
+      <div
+        style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          width: "50%",
+          height: "100%",
+          background: "linear-gradient(to right, var(--bg) 0%, transparent 100%)",
+          pointerEvents: "none",
+        }}
+      />
+    </div>
+  );
+}
+
+// Static data
 const tickerItems = [
   "Classical ML",
   "Bayesian Statistics",
@@ -14,7 +347,12 @@ const tickerItems = [
   "A/B Testing",
   "Embeddings",
   "Generative AI",
+  "Data Engineering",
+  "MLOps",
+  "Feature Engineering",
+  "Model Evaluation",
 ];
+
 const topics = [
   {
     num: "01",
@@ -49,68 +387,12 @@ const topics = [
     accent: "#b847ff",
   },
 ];
-const issues = [
-  {
-    num: "047",
-    cat: "Generative AI",
-    color: "#e8ff47",
-    title: "Why Your RAG Pipeline Hallucinate — and How to Fix It",
-    date: "Feb 24, 2025",
-  },
-  {
-    num: "046",
-    cat: "Statistics",
-    color: "#47ffe8",
-    title: "The Bayesian Trap: When Priors Silently Ruin Your Models",
-    date: "Feb 17, 2025",
-  },
-  {
-    num: "045",
-    cat: "Classical ML",
-    color: "#e8ff47",
-    title: "Gradient Boosting vs Neural Nets: A Fair Fight in 2025",
-    date: "Feb 10, 2025",
-  },
-  {
-    num: "044",
-    cat: "RAG & Retrieval",
-    color: "#ff6b47",
-    title: "GraphRAG Explained: Knowledge Graphs Meet LLMs",
-    date: "Feb 03, 2025",
-  },
-  {
-    num: "043",
-    cat: "Generative AI",
-    color: "#b847ff",
-    title: "LoRA, QLoRA, and the Fine-Tuning Hierarchy You Need to Know",
-    date: "Jan 27, 2025",
-  },
-];
-const testimonials = [
-  {
-    initials: "AK",
-    name: "Arjun K.",
-    role: "ML Engineer · Bangalore",
-    text: '"The RAG pipeline breakdown was the clearest explanation I\'ve found anywhere. I finally understand why chunking strategy matters so much."',
-  },
-  {
-    initials: "SR",
-    name: "Sofia R.",
-    role: "Data Scientist · Berlin",
-    text: '"Finally a newsletter that doesn\'t dumb things down. The statistical inference series changed how I think about model evaluation."',
-  },
-  {
-    initials: "MJ",
-    name: "Marcus J.",
-    role: "Senior DS · Toronto",
-    text: '"I\'ve tried dozens of ML newsletters. dataBitBytes is the only one I consistently open immediately. The XGBoost deep-dive alone was worth subscribing."',
-  },
-];
+
 const features = [
   {
     icon: "🧠",
     title: "Concept-First Writing",
-    desc: "Every issue starts with why, not what. Mental models over syntax.",
+    desc: "Every article starts with why, not what. Mental models over syntax.",
   },
   {
     icon: "📊",
@@ -118,9 +400,9 @@ const features = [
     desc: "Diagrams, annotated code, and step-by-step walkthroughs make complex topics click.",
   },
   {
-    icon: "⚡",
-    title: "10-Minute Reads",
-    desc: "Dense but readable. Every issue is calibrated to give maximum insight per minute.",
+    icon: "🔬",
+    title: "In-Depth Research",
+    desc: "We dive deep into papers, implementations, and real-world applications.",
   },
   {
     icon: "🔗",
@@ -128,16 +410,113 @@ const features = [
     desc: "Papers, repos, tools, and talks — only the ones worth your time.",
   },
 ];
-export default function Home() {
+
+// Helper functions
+function formatDate(dateString: string): string {
+  const date = new Date(dateString);
+  return date.toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+  });
+}
+
+function getIssueNumber(index: number, total: number): string {
+  const issueNum = total - index;
+  return issueNum.toString().padStart(3, "0");
+}
+
+function getInitials(name: string): string {
+  return name
+    .split(" ")
+    .map((n) => n[0])
+    .join("")
+    .toUpperCase()
+    .slice(0, 2);
+}
+
+// CSS styles as a string
+const globalStyles = `
+  @keyframes ticker {
+    0% { transform: translateX(0); }
+    100% { transform: translateX(-50%); }
+  }
+  nav.scrolled {
+    background: rgba(10, 10, 15, 0.92) !important;
+    border-color: var(--border-custom) !important;
+    backdrop-filter: blur(12px);
+  }
+`;
+
+export default function Home(): React.ReactElement {
   const navRef = useRef<HTMLElement>(null);
+  const [posts, setPosts] = useState<Post[]>([]);
+  const [featuredComments, setFeaturedComments] = useState<Comment[]>([]);
+  const [stats, setStats] = useState<Stats>({ postsCount: 0, commentsCount: 0 });
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Fetch data from API
   useEffect(() => {
-    // Nav scroll
+    const fetchData = async (): Promise<void> => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        const postsRes = await fetch("/api/posts");
+        if (!postsRes.ok) throw new Error("Failed to fetch posts");
+        const postsData: Post[] = await postsRes.json();
+
+        const publishedPosts = postsData
+          .filter((post) => post.published)
+          .slice(0, 5);
+        setPosts(publishedPosts);
+
+        const totalPublished = postsData.filter((p) => p.published).length;
+
+        const allComments: Comment[] = [];
+        for (const post of publishedPosts.slice(0, 3)) {
+          try {
+            const commentsRes = await fetch(
+              `/api/comments?post_slug=${post.slug}`
+            );
+            if (commentsRes.ok) {
+              const commentsData: Comment[] = await commentsRes.json();
+              allComments.push(...commentsData);
+            }
+          } catch (commentError) {
+            console.error("Failed to fetch comments for post:", post.slug, commentError);
+          }
+        }
+
+        const approvedComments = allComments
+          .filter((c) => c.approved && c.content.length > 50)
+          .slice(0, 3);
+        setFeaturedComments(approvedComments);
+
+        setStats({
+          postsCount: totalPublished,
+          commentsCount: allComments.filter((c) => c.approved).length,
+        });
+      } catch (err) {
+        console.error("Failed to fetch data:", err);
+        setError("Failed to load content");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, []);
+
+  // Nav scroll and reveal animations
+  useEffect(() => {
     const nav = navRef.current;
-    const onScroll = () => {
+    const onScroll = (): void => {
       nav?.classList.toggle("scrolled", window.scrollY > 40);
     };
     window.addEventListener("scroll", onScroll);
-    // Reveal on scroll
+
     const reveals = document.querySelectorAll(".reveal");
     const obs = new IntersectionObserver(
       (entries) => {
@@ -148,16 +527,21 @@ export default function Home() {
           }
         });
       },
-      { threshold: 0.1 },
+      { threshold: 0.1 }
     );
     reveals.forEach((el) => obs.observe(el));
+
     return () => {
       window.removeEventListener("scroll", onScroll);
       obs.disconnect();
     };
   }, []);
+
   return (
-    <>
+    <div>
+      {/* Inject global styles */}
+      <style dangerouslySetInnerHTML={{ __html: globalStyles }} />
+
       {/* NAV */}
       <nav
         ref={navRef}
@@ -251,10 +635,11 @@ export default function Home() {
             transition: "transform 0.2s, box-shadow 0.2s",
           }}
         >
-          Read Blog →
+          Explore Articles →
         </Link>
       </nav>
-      {/* HERO */}
+
+      {/* HERO WITH KNOWLEDGE GRAPH */}
       <section
         style={{
           minHeight: "100vh",
@@ -265,131 +650,234 @@ export default function Home() {
           padding: "120px 48px 80px",
           position: "relative",
           zIndex: 10,
-          maxWidth: 1200,
+          overflow: "hidden",
         }}
       >
-        <div
-          style={{
-            fontSize: "0.7rem",
-            letterSpacing: "0.2em",
-            textTransform: "uppercase",
-            color: "#e8ff47",
-            marginBottom: 24,
-            display: "flex",
-            alignItems: "center",
-            gap: 12,
-          }}
-        >
-          <span
+        {/* Knowledge Graph Background */}
+        <KnowledgeGraph />
+
+        {/* Hero Content */}
+        <div style={{ maxWidth: 580, position: "relative", zIndex: 2 }}>
+          <div
             style={{
-              display: "block",
-              width: 32,
-              height: 1,
-              background: "#e8ff47",
-            }}
-          />
-          Weekly Newsletter · Est. 2025
-        </div>
-        <h1
-          style={{
-            fontFamily: "var(--font-serif)",
-            fontSize: "clamp(3.5rem, 8vw, 7rem)",
-            lineHeight: 1.0,
-            letterSpacing: "-0.03em",
-            marginBottom: 32,
-            color: "var(--text)",
-          }}
-        >
-          Master the{" "}
-          <em style={{ fontStyle: "italic", color: "#e8ff47" }}>Stack</em>
-          <br />
-          <span style={{ display: "block", color: "var(--muted-custom)" }}>
-            that Matters.
-          </span>
-        </h1>
-        <p
-          style={{
-            fontSize: "0.95rem",
-            color: "var(--muted-custom)",
-            maxWidth: 480,
-            lineHeight: 1.8,
-            marginBottom: 48,
-          }}
-        >
-          Weekly deep-dives into Classical ML, Statistics, RAG architectures,
-          and Generative AI — distilled into precise, actionable bytes. No
-          fluff, no hype.
-        </p>
-        <div style={{ display: "flex", gap: 0, maxWidth: 480, width: "100%" }}>
-          <input
-            type="email"
-            placeholder="your@email.com"
-            style={{
-              flex: 1,
-              background: "var(--surface)",
-              border: "1px solid var(--border-custom)",
-              borderRight: "none",
-              padding: "16px 20px",
-              color: "var(--text)",
-              fontFamily: "var(--font-sans)",
-              fontSize: "0.85rem",
-              outline: "none",
-            }}
-          />
-          <button
-            style={{
-              background: "#e8ff47",
-              color: "var(--bg)",
-              border: "1px solid #e8ff47",
-              padding: "16px 28px",
-              fontFamily: "var(--font-sans)",
-              fontSize: "0.75rem",
-              fontWeight: 500,
-              letterSpacing: "0.1em",
+              fontSize: "0.7rem",
+              letterSpacing: "0.2em",
               textTransform: "uppercase",
-              cursor: "pointer",
-              whiteSpace: "nowrap",
+              color: "#e8ff47",
+              marginBottom: 24,
+              display: "flex",
+              alignItems: "center",
+              gap: 12,
             }}
           >
-            Subscribe →
-          </button>
+            <span
+              style={{
+                display: "block",
+                width: 32,
+                height: 1,
+                background: "#e8ff47",
+              }}
+            />
+            Data Science Blog · Weekly Updates
+          </div>
+          <h1
+            style={{
+              fontFamily: "var(--font-serif)",
+              fontSize: "clamp(2.8rem, 6vw, 5rem)",
+              lineHeight: 1.05,
+              letterSpacing: "-0.03em",
+              marginBottom: 32,
+              color: "var(--text)",
+            }}
+          >
+            Learn Data Science,
+            <br />
+            <span style={{ color: "#e8ff47" }}>
+              <em style={{ fontStyle: "italic" }}>One Byte</em>
+            </span>{" "}
+            <span style={{ color: "var(--muted-custom)" }}>at a Time.</span>
+          </h1>
+          <p
+            style={{
+              fontSize: "0.92rem",
+              color: "var(--muted-custom)",
+              maxWidth: 480,
+              lineHeight: 1.8,
+              marginBottom: 40,
+            }}
+          >
+            Deep-dive articles on Classical ML, Statistics, RAG architectures,
+            and Generative AI. We break down complex concepts into clear,
+            actionable insights — with new content published weekly.
+          </p>
+          <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+            <Link
+              href="/blog"
+              style={{
+                background: "#e8ff47",
+                color: "var(--bg)",
+                border: "1px solid #e8ff47",
+                padding: "14px 28px",
+                fontFamily: "var(--font-sans)",
+                fontSize: "0.75rem",
+                fontWeight: 500,
+                letterSpacing: "0.1em",
+                textTransform: "uppercase",
+                textDecoration: "none",
+                cursor: "pointer",
+                whiteSpace: "nowrap",
+              }}
+            >
+              Read the Blog →
+            </Link>
+            <a
+              href="#topics"
+              style={{
+                background: "transparent",
+                color: "var(--text)",
+                border: "1px solid var(--border-custom)",
+                padding: "14px 28px",
+                fontFamily: "var(--font-sans)",
+                fontSize: "0.75rem",
+                fontWeight: 500,
+                letterSpacing: "0.1em",
+                textTransform: "uppercase",
+                textDecoration: "none",
+                cursor: "pointer",
+                whiteSpace: "nowrap",
+              }}
+            >
+              Explore Topics
+            </a>
+          </div>
+
+          {/* DYNAMIC STATS */}
+          <div
+            style={{ marginTop: 56, display: "flex", gap: 40, flexWrap: "wrap" }}
+          >
+            {loading ? (
+              <div style={{ color: "var(--muted-custom)", fontSize: "0.85rem" }}>
+                Loading stats...
+              </div>
+            ) : (
+              <React.Fragment>
+                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                  <div
+                    style={{
+                      fontFamily: "var(--font-serif)",
+                      fontSize: "1.8rem",
+                      color: "var(--text)",
+                    }}
+                  >
+                    {stats.postsCount}
+                    <span style={{ color: "#e8ff47" }}>+</span>
+                  </div>
+                  <div
+                    style={{
+                      fontSize: "0.68rem",
+                      letterSpacing: "0.12em",
+                      textTransform: "uppercase",
+                      color: "var(--muted-custom)",
+                    }}
+                  >
+                    In-Depth Articles
+                  </div>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                  <div
+                    style={{
+                      fontFamily: "var(--font-serif)",
+                      fontSize: "1.8rem",
+                      color: "var(--text)",
+                    }}
+                  >
+                    {topics.length}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: "0.68rem",
+                      letterSpacing: "0.12em",
+                      textTransform: "uppercase",
+                      color: "var(--muted-custom)",
+                    }}
+                  >
+                    Core Topics
+                  </div>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                  <div
+                    style={{
+                      fontFamily: "var(--font-serif)",
+                      fontSize: "1.8rem",
+                      color: "var(--text)",
+                    }}
+                  >
+                    Weekly
+                  </div>
+                  <div
+                    style={{
+                      fontSize: "0.68rem",
+                      letterSpacing: "0.12em",
+                      textTransform: "uppercase",
+                      color: "var(--muted-custom)",
+                    }}
+                  >
+                    New Content
+                  </div>
+                </div>
+              </React.Fragment>
+            )}
+          </div>
         </div>
+
+        {/* Graph legend - visible on medium+ screens */}
         <div
-          style={{ marginTop: 64, display: "flex", gap: 48, flexWrap: "wrap" }}
+          className="hidden md:flex"
+          style={{
+            position: "absolute",
+            bottom: 32,
+            right: 48,
+            gap: 20,
+            zIndex: 2,
+          }}
         >
           {[
-            { num: "12", suffix: "K+", label: "Subscribers" },
-            { num: "52", suffix: "+", label: "Issues / Year" },
-            { num: "4", suffix: ".9", label: "Avg. Rating" },
-          ].map((s) => (
+            { color: "#e8ff47", label: "ML" },
+            { color: "#47ffe8", label: "Stats" },
+            { color: "#ff6b47", label: "RAG" },
+            { color: "#b847ff", label: "GenAI" },
+          ].map((item) => (
             <div
-              key={s.label}
-              style={{ display: "flex", flexDirection: "column", gap: 4 }}
+              key={item.label}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+              }}
             >
-              <div
+              <span
                 style={{
-                  fontFamily: "var(--font-serif)",
-                  fontSize: "2rem",
-                  color: "var(--text)",
+                  width: 6,
+                  height: 6,
+                  borderRadius: "50%",
+                  background: item.color,
                 }}
-              >
-                {s.num}
-                <span style={{ color: "#e8ff47" }}>{s.suffix}</span>
-              </div>
-              <div
+              />
+              <span
                 style={{
-                  fontSize: "0.7rem",
-                  letterSpacing: "0.12em",
+                  fontSize: "0.6rem",
+                  letterSpacing: "0.08em",
                   textTransform: "uppercase",
                   color: "var(--muted-custom)",
                 }}
               >
-                {s.label}
-              </div>
+                {item.label}
+              </span>
             </div>
           ))}
         </div>
       </section>
+
       {/* TICKER */}
       <div
         style={{
@@ -437,6 +925,7 @@ export default function Home() {
           ))}
         </div>
       </div>
+
       {/* TOPICS */}
       <section
         id="topics"
@@ -463,7 +952,7 @@ export default function Home() {
                 marginBottom: 8,
               }}
             >
-              Coverage
+              What We Cover
             </div>
             <h2
               style={{
@@ -496,7 +985,7 @@ export default function Home() {
             background: "var(--border-custom)",
             border: "1px solid var(--border-custom)",
           }}
-          className="!grid-cols-2 md:!grid-cols-4"
+          className="!grid-cols-1 sm:!grid-cols-2 lg:!grid-cols-4"
         >
           {topics.map((t) => (
             <div
@@ -574,9 +1063,10 @@ export default function Home() {
           ))}
         </div>
       </section>
-      {/* LATEST ISSUES */}
+
+      {/* LATEST ARTICLES - DYNAMIC */}
       <section
-        id="issues"
+        id="articles"
         style={{ padding: "0 48px 100px", position: "relative", zIndex: 10 }}
       >
         <div
@@ -609,7 +1099,7 @@ export default function Home() {
                 letterSpacing: "-0.02em",
               }}
             >
-              Recent Issues
+              Recent Articles
             </h2>
           </div>
           <Link
@@ -635,74 +1125,134 @@ export default function Home() {
             border: "1px solid var(--border-custom)",
           }}
         >
-          {issues.map((iss) => (
-            <Link
-              key={iss.num}
-              href="/blog"
+          {loading && (
+            <div
               style={{
                 background: "var(--bg)",
-                display: "grid",
-                gridTemplateColumns: "80px 1fr auto auto",
-                alignItems: "center",
-                gap: 32,
-                padding: "28px 32px",
-                textDecoration: "none",
-                transition: "background 0.2s",
-                borderLeft: "3px solid transparent",
+                padding: "60px 32px",
+                textAlign: "center",
+                color: "var(--muted-custom)",
               }}
             >
-              <div
+              Loading articles...
+            </div>
+          )}
+          {!loading && error && (
+            <div
+              style={{
+                background: "var(--bg)",
+                padding: "60px 32px",
+                textAlign: "center",
+                color: "var(--muted-custom)",
+              }}
+            >
+              {error}
+            </div>
+          )}
+          {!loading && !error && posts.length === 0 && (
+            <div
+              style={{
+                background: "var(--bg)",
+                padding: "60px 32px",
+                textAlign: "center",
+                color: "var(--muted-custom)",
+              }}
+            >
+              No articles yet. Check back soon — new content drops weekly!
+            </div>
+          )}
+          {!loading &&
+            !error &&
+            posts.length > 0 &&
+            posts.map((post, index) => (
+              <Link
+                key={post._id}
+                href={`/blog/${post.slug}`}
                 style={{
-                  fontFamily: "var(--font-serif)",
-                  fontSize: "1.8rem",
-                  color: "var(--muted2)",
+                  background: "var(--bg)",
+                  display: "grid",
+                  gridTemplateColumns: "60px 1fr auto auto",
+                  alignItems: "center",
+                  gap: 24,
+                  padding: "24px 28px",
+                  textDecoration: "none",
+                  transition: "background 0.2s",
+                  borderLeft: "3px solid transparent",
                 }}
+                className="!grid-cols-[1fr] sm:!grid-cols-[60px_1fr_auto_auto]"
               >
-                {iss.num}
-              </div>
-              <div>
                 <div
+                  className="hidden sm:block"
                   style={{
-                    fontSize: "0.65rem",
-                    letterSpacing: "0.15em",
-                    textTransform: "uppercase",
-                    marginBottom: 6,
-                    color: iss.color,
+                    fontFamily: "var(--font-serif)",
+                    fontSize: "1.6rem",
+                    color: "var(--muted2)",
                   }}
                 >
-                  {iss.cat}
+                  {getIssueNumber(index, stats.postsCount)}
+                </div>
+                <div>
+                  <div
+                    style={{
+                      fontSize: "0.65rem",
+                      letterSpacing: "0.15em",
+                      textTransform: "uppercase",
+                      marginBottom: 6,
+                      color: post.categoryColor || "#e8ff47",
+                    }}
+                  >
+                    {post.category}
+                  </div>
+                  <div
+                    style={{
+                      fontFamily: "var(--font-heading)",
+                      fontWeight: 600,
+                      fontSize: "1rem",
+                      color: "var(--text)",
+                    }}
+                  >
+                    {post.title}
+                  </div>
                 </div>
                 <div
+                  className="hidden md:block"
+                  style={{ fontSize: "0.72rem", color: "var(--muted-custom)" }}
+                >
+                  {formatDate(post.createdAt)}
+                </div>
+                <div
+                  className="hidden sm:block"
                   style={{
-                    fontFamily: "var(--font-heading)",
-                    fontWeight: 600,
-                    fontSize: "1rem",
-                    color: "var(--text)",
+                    fontSize: "1.2rem",
+                    color: "var(--muted2)",
+                    transition: "transform 0.2s, color 0.2s",
                   }}
                 >
-                  {iss.title}
+                  →
                 </div>
-              </div>
-              <div
-                className="hidden md:block"
-                style={{ fontSize: "0.72rem", color: "var(--muted-custom)" }}
-              >
-                {iss.date}
-              </div>
-              <div
-                className="hidden md:block"
-                style={{
-                  fontSize: "1.2rem",
-                  color: "var(--muted2)",
-                  transition: "transform 0.2s, color 0.2s",
-                }}
-              >
-                →
-              </div>
-            </Link>
-          ))}
+              </Link>
+            ))}
         </div>
+        {!loading && !error && posts.length > 0 && (
+          <div style={{ marginTop: 32, textAlign: "center" }}>
+            <Link
+              href="/blog"
+              style={{
+                fontSize: "0.75rem",
+                letterSpacing: "0.1em",
+                textTransform: "uppercase",
+                color: "#e8ff47",
+                textDecoration: "none",
+                borderBottom: "1px solid #e8ff47",
+                paddingBottom: 4,
+              }}
+            >
+              View All Articles →
+            </Link>
+          </div>
+        )}
       </section>
+
       {/* ABOUT */}
       <section
         id="about"
@@ -751,49 +1301,52 @@ export default function Home() {
               marginBottom: 36,
             }}
           >
-            dataBitBytes is a curated weekly newsletter focused on the
-            intersection of rigorous statistical thinking, classical machine
-            learning, and modern generative AI systems. Every issue is crafted
-            to give you a real mental model — not surface-level summaries.
+            dataBitBytes is a data science blog focused on the intersection of
+            rigorous statistical thinking, classical machine learning, and
+            modern generative AI systems. Every article is crafted to give you a
+            real mental model — not surface-level summaries.
             <br />
             <br />
             Whether you&apos;re a researcher, ML engineer, data scientist, or a
-            curious builder — each edition takes one concept and explains it the
-            way it should be taught.
+            curious builder — we take one concept at a time and explain it the
+            way it should be taught. New articles drop every week.
           </p>
-          <div style={{ display: "flex", gap: 0, width: "100%" }}>
-            <input
-              type="email"
-              placeholder="your@email.com"
-              style={{
-                flex: 1,
-                background: "var(--surface)",
-                border: "1px solid var(--border-custom)",
-                borderRight: "none",
-                padding: "16px 20px",
-                color: "var(--text)",
-                fontFamily: "var(--font-sans)",
-                fontSize: "0.8rem",
-                outline: "none",
-              }}
-            />
-            <button
+          <div
+            style={{
+              display: "flex",
+              gap: 16,
+              flexWrap: "wrap",
+              alignItems: "center",
+            }}
+          >
+            <Link
+              href="/blog"
               style={{
                 background: "#e8ff47",
                 color: "var(--bg)",
                 border: "1px solid #e8ff47",
-                padding: "16px 28px",
+                padding: "14px 24px",
                 fontFamily: "var(--font-sans)",
                 fontSize: "0.72rem",
                 fontWeight: 500,
                 letterSpacing: "0.1em",
                 textTransform: "uppercase",
+                textDecoration: "none",
                 cursor: "pointer",
                 whiteSpace: "nowrap",
               }}
             >
-              Join Free →
-            </button>
+              Start Reading →
+            </Link>
+            <span
+              style={{
+                fontSize: "0.72rem",
+                color: "var(--muted-custom)",
+                letterSpacing: "0.05em",
+              }}
+            >
+              New articles every week
+            </span>
           </div>
         </div>
         <div
@@ -847,144 +1400,148 @@ export default function Home() {
           ))}
         </div>
       </section>
-      {/* TESTIMONIALS */}
-      <section
-        style={{
-          padding: "100px 48px",
-          borderTop: "1px solid var(--border-custom)",
-          position: "relative",
-          zIndex: 10,
-        }}
-      >
-        <div
-          className="reveal"
+
+      {/* TESTIMONIALS - DYNAMIC FROM COMMENTS */}
+      {featuredComments.length > 0 && (
+        <section
           style={{
-            display: "flex",
-            alignItems: "baseline",
-            justifyContent: "space-between",
-            marginBottom: 56,
-            paddingBottom: 20,
-            borderBottom: "1px solid var(--border-custom)",
+            padding: "100px 48px",
+            borderTop: "1px solid var(--border-custom)",
+            position: "relative",
+            zIndex: 10,
           }}
         >
-          <div>
+          <div
+            className="reveal"
+            style={{
+              display: "flex",
+              alignItems: "baseline",
+              justifyContent: "space-between",
+              marginBottom: 56,
+              paddingBottom: 20,
+              borderBottom: "1px solid var(--border-custom)",
+            }}
+          >
+            <div>
+              <div
+                style={{
+                  fontSize: "0.68rem",
+                  letterSpacing: "0.2em",
+                  textTransform: "uppercase",
+                  color: "#e8ff47",
+                  marginBottom: 8,
+                }}
+              >
+                Community
+              </div>
+              <h2
+                style={{
+                  fontFamily: "var(--font-serif)",
+                  fontSize: "clamp(2rem, 4vw, 3rem)",
+                  letterSpacing: "-0.02em",
+                }}
+              >
+                What Readers Say
+              </h2>
+            </div>
             <div
               style={{
-                fontSize: "0.68rem",
-                letterSpacing: "0.2em",
-                textTransform: "uppercase",
-                color: "#e8ff47",
-                marginBottom: 8,
-              }}
-            >
-              Social Proof
-            </div>
-            <h2
-              style={{
                 fontFamily: "var(--font-serif)",
-                fontSize: "clamp(2rem, 4vw, 3rem)",
-                letterSpacing: "-0.02em",
+                fontSize: "5rem",
+                color: "var(--muted2)",
+                lineHeight: 1,
               }}
             >
-              What Readers Say
-            </h2>
+              ★
+            </div>
           </div>
           <div
             style={{
-              fontFamily: "var(--font-serif)",
-              fontSize: "5rem",
-              color: "var(--muted2)",
-              lineHeight: 1,
+              display: "grid",
+              gridTemplateColumns: "repeat(3, 1fr)",
+              gap: "1px",
+              background: "var(--border-custom)",
+              border: "1px solid var(--border-custom)",
             }}
+            className="!grid-cols-1 md:!grid-cols-3"
           >
-            ★
-          </div>
-        </div>
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(3, 1fr)",
-            gap: "1px",
-            background: "var(--border-custom)",
-            border: "1px solid var(--border-custom)",
-          }}
-          className="!grid-cols-1 md:!grid-cols-3"
-        >
-          {testimonials.map((t) => (
-            <div
-              key={t.initials}
-              className="reveal"
-              style={{
-                background: "var(--bg)",
-                padding: "36px 32px",
-                transition: "background 0.2s",
-              }}
-            >
+            {featuredComments.map((comment) => (
               <div
+                key={comment._id}
+                className="reveal"
                 style={{
-                  color: "#e8ff47",
-                  fontSize: "0.75rem",
-                  letterSpacing: 3,
-                  marginBottom: 16,
+                  background: "var(--bg)",
+                  padding: "36px 32px",
+                  transition: "background 0.2s",
                 }}
               >
-                ★★★★★
-              </div>
-              <div
-                style={{
-                  fontSize: "0.83rem",
-                  lineHeight: 1.75,
-                  color: "var(--muted-custom)",
-                  marginBottom: 24,
-                }}
-              >
-                {t.text}
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                 <div
                   style={{
-                    width: 36,
-                    height: 36,
-                    borderRadius: "50%",
-                    background: "var(--surface2)",
-                    border: "1px solid var(--border-custom)",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    fontSize: "0.8rem",
                     color: "#e8ff47",
-                    fontFamily: "var(--font-heading)",
-                    fontWeight: 700,
+                    fontSize: "0.75rem",
+                    letterSpacing: 3,
+                    marginBottom: 16,
                   }}
                 >
-                  {t.initials}
+                  ★★★★★
                 </div>
-                <div>
+                <div
+                  style={{
+                    fontSize: "0.83rem",
+                    lineHeight: 1.75,
+                    color: "var(--muted-custom)",
+                    marginBottom: 24,
+                  }}
+                >
+                  &quot;{comment.content}&quot;
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                   <div
                     style={{
+                      width: 36,
+                      height: 36,
+                      borderRadius: "50%",
+                      background: "var(--surface2)",
+                      border: "1px solid var(--border-custom)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      fontSize: "0.8rem",
+                      color: "#e8ff47",
                       fontFamily: "var(--font-heading)",
-                      fontWeight: 600,
-                      fontSize: "0.85rem",
-                      color: "var(--text)",
+                      fontWeight: 700,
                     }}
                   >
-                    {t.name}
+                    {getInitials(comment.author)}
                   </div>
-                  <div
-                    style={{
-                      fontSize: "0.68rem",
-                      color: "var(--muted-custom)",
-                      letterSpacing: "0.05em",
-                    }}
-                  >
-                    {t.role}
+                  <div>
+                    <div
+                      style={{
+                        fontFamily: "var(--font-heading)",
+                        fontWeight: 600,
+                        fontSize: "0.85rem",
+                        color: "var(--text)",
+                      }}
+                    >
+                      {comment.author}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: "0.68rem",
+                        color: "var(--muted-custom)",
+                        letterSpacing: "0.05em",
+                      }}
+                    >
+                      {formatDate(comment.createdAt)}
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          ))}
-        </div>
-      </section>
+            ))}
+          </div>
+        </section>
+      )}
+
       {/* CTA */}
       <div
         className="reveal"
@@ -992,7 +1549,7 @@ export default function Home() {
           margin: "0 48px 100px",
           background: "var(--surface)",
           border: "1px solid var(--border-custom)",
-          padding: 80,
+          padding: "60px",
           position: "relative",
           overflow: "hidden",
           zIndex: 10,
@@ -1004,7 +1561,7 @@ export default function Home() {
             right: -20,
             bottom: -40,
             fontFamily: "var(--font-serif)",
-            fontSize: "9rem",
+            fontSize: "8rem",
             color: "var(--muted2)",
             opacity: 0.15,
             whiteSpace: "nowrap",
@@ -1014,7 +1571,7 @@ export default function Home() {
         >
           dataBitBytes
         </div>
-        <div style={{ maxWidth: 600, position: "relative" }}>
+        <div style={{ maxWidth: 550, position: "relative" }}>
           <div
             style={{
               fontSize: "0.68rem",
@@ -1024,72 +1581,79 @@ export default function Home() {
               marginBottom: 8,
             }}
           >
-            Get Started
+            Start Learning
           </div>
           <h2
             style={{
               fontFamily: "var(--font-serif)",
-              fontSize: "clamp(2rem, 4vw, 3rem)",
+              fontSize: "clamp(1.8rem, 4vw, 2.8rem)",
               letterSpacing: "-0.02em",
               marginBottom: 16,
             }}
           >
-            One Email.
+            Ready to Go
             <br />
-            Every Week.
+            Deeper?
           </h2>
           <p
             style={{
-              fontSize: "0.88rem",
+              fontSize: "0.85rem",
               color: "var(--muted-custom)",
               lineHeight: 1.7,
-              marginBottom: 40,
+              marginBottom: 32,
             }}
           >
-            Join 12,000+ data professionals getting sharper every Sunday. Free
-            forever. Unsubscribe anytime.
+            Explore our collection of in-depth articles on machine learning,
+            statistics, and AI. New content published weekly.
           </p>
-          <div style={{ display: "flex", gap: 0, maxWidth: 460 }}>
-            <input
-              type="email"
-              placeholder="your@email.com"
-              style={{
-                flex: 1,
-                background: "var(--bg)",
-                border: "1px solid var(--border-custom)",
-                borderRight: "none",
-                padding: "15px 20px",
-                color: "var(--text)",
-                fontFamily: "var(--font-sans)",
-                fontSize: "0.83rem",
-                outline: "none",
-              }}
-            />
-            <button
+          <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+            <Link
+              href="/blog"
               style={{
                 background: "#e8ff47",
                 color: "var(--bg)",
                 border: "1px solid #e8ff47",
-                padding: "15px 28px",
+                padding: "14px 24px",
                 fontFamily: "var(--font-sans)",
-                fontSize: "0.75rem",
+                fontSize: "0.72rem",
                 fontWeight: 500,
                 letterSpacing: "0.1em",
                 textTransform: "uppercase",
+                textDecoration: "none",
                 cursor: "pointer",
                 whiteSpace: "nowrap",
               }}
             >
-              Subscribe →
-            </button>
+              Browse All Articles →
+            </Link>
+            <a
+              href="#topics"
+              style={{
+                background: "transparent",
+                color: "var(--text)",
+                border: "1px solid var(--border-custom)",
+                padding: "14px 24px",
+                fontFamily: "var(--font-sans)",
+                fontSize: "0.72rem",
+                fontWeight: 500,
+                letterSpacing: "0.1em",
+                textTransform: "uppercase",
+                textDecoration: "none",
+                cursor: "pointer",
+                whiteSpace: "nowrap",
+              }}
+            >
+              View Topics
+            </a>
           </div>
         </div>
       </div>
+
       {/* FOOTER */}
       <footer
         style={{
           borderTop: "1px solid var(--border-custom)",
-          padding: 48,
+          padding: "48px",
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
@@ -1133,20 +1697,6 @@ export default function Home() {
           </li>
           <li>
             <a
-              href="#about"
-              style={{
-                fontSize: "0.72rem",
-                letterSpacing: "0.1em",
-                textTransform: "uppercase",
-                color: "var(--muted-custom)",
-                textDecoration: "none",
-              }}
-            >
-              About
-            </a>
-          </li>
-          <li>
-            <a
               href="#topics"
               style={{
                 fontSize: "0.72rem",
@@ -1159,17 +1709,25 @@ export default function Home() {
               Topics
             </a>
           </li>
+          <li>
+            <a
+              href="#about"
+              style={{
+                fontSize: "0.72rem",
+                letterSpacing: "0.1em",
+                textTransform: "uppercase",
+                color: "var(--muted-custom)",
+                textDecoration: "none",
+              }}
+            >
+              About
+            </a>
+          </li>
         </ul>
         <div style={{ fontSize: "0.7rem", color: "var(--muted2)" }}>
           © 2025 dataBitBytes. All rights reserved.
         </div>
       </footer>
-      {/* Ticker animation keyframes */}
-      <style>{`
-@keyframes ticker { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
-nav.scrolled { background: rgba(10,10,15,0.92) !important; border-color: var(--border-custom) !important; backdrop-filter: blur(12px); }
-body { cursor: none; }
-`}</style>
-    </>
+    </div>
   );
 }
